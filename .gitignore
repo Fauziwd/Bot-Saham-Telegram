@@ -1,1 +1,24 @@
-kenangan-wonk-njero-a4c82472c754.json
+# File environment yang berisi token dan ID rahasia
+.env
+
+# File kredensial atau kunci layanan (seperti Google, Firebase, dll.)
+# Mengabaikan semua file JSON yang cocok dengan pola ini
+kenangan-wonk-njero-*.json
+*.json
+
+# Folder virtual environment Python
+venv/
+env/
+.venv/
+
+# Folder cache dan file kompilasi Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# File database lokal (jika ada)
+*.db
+*.sqlite3
+
+
