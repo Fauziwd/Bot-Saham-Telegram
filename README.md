@@ -128,7 +128,7 @@ python stock_screener.py
 ```plaintext
 MIT License
 
-Copyright (c) [year] [fullname]
+Copyright (c) 2025 Fauziiwd
 
 ⚠️ Important Notice:
 1. This bot is for EDUCATIONAL PURPOSES ONLY
