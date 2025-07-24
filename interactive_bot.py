@@ -47,7 +47,11 @@ STOCK_LIST = [
     "WIFI", "CUAN", "ADRO", "SSIA", "TOBA", "DATA", "BREN", "RELI", "PGUN", "NRCA", "ARGO",
     "MERI", "BRPT", "PSAT", "CSMI", "OKAS", "PART", "PYFA", "NICL", "MINA", "EMTK", "PTPS", "MMLP",
     # Anda bisa tambahkan lebih banyak saham di sini
-    "BBCA", "BBRI", "BMRI", "TLKM", "ASII", "GOTO", "UNVR", "ICBP", "MDKA", "ANTM", "INCO"
+    "BBCA", "BBRI", "BMRI", "TLKM", "ASII", "GOTO", "UNVR", "ICBP", "MDKA", "ANTM", "INCO",
+    # Saham dari contoh awal
+    "KOKA", "AMAR", "IMJS", "ARGO", "IMAS", "INPC", "MMIX", "ASPR", "JIHD", "RUNS",
+    "BMTR", "UDNG", "WIRG", "SMKM", "SMBR", "MSIE", "STRK", "COCO", "BKSL", "OBMD",
+    "AEGS", "SMDR", "EURO", "BEER", "MTMH", "BULL"
 ]
 
 # =============================================================================
@@ -98,23 +102,49 @@ def format_price(price):
 # 📊 ANALYSIS FUNCTIONS
 # =============================================================================
 
-def scan_volume_spikes():
-    """Mencari saham dengan lonjakan volume di atas rata-rata."""
-    volume_spikes = []
+# <<< FUNGSI LAMA DIGANTI DENGAN FUNGSI BARU DI BAWAH INI >>>
+def scan_accumulation_uptrend():
+    """Mencari saham dengan Sinyal Akumulasi + Tren Naik."""
+    results = []
     for stock_code in STOCK_LIST:
-        ticker = f"{stock_code}.JK"
+        ticker = f"{stock_code.upper()}.JK"
         try:
-            df = yf.download(ticker, period="2mo", progress=False, auto_adjust=False, interval="1d")
+            # Ambil data 3 bulan untuk memastikan MA20 valid
+            df = yf.download(ticker, period="3mo", progress=False, auto_adjust=False, interval="1d")
             if df.empty or len(df) < 21: continue
-            df['Volume_MA20'] = df['Volume'].rolling(window=20).mean()
-            last_session = df.iloc[-1]
-            if pd.isna(last_session['Volume']) or pd.isna(last_session['Volume_MA20']) or last_session['Volume_MA20'] == 0: continue
-            volume_ratio = last_session['Volume'] / last_session['Volume_MA20']
-            if volume_ratio > VOLUME_SPIKE_THRESHOLD:
-                volume_spikes.append({"stock": stock_code, "price": last_session['Close'], "volume": last_session['Volume'], "ratio": volume_ratio})
+
+            # Hitung Indikator Trend dan Volume
+            df['MA20'] = df['Close'].rolling(window=20).mean()
+            df['Avg5_Vol'] = df['Volume'].rolling(window=5).mean()
+            df.dropna(inplace=True)
+            if df.empty: continue
+
+            last = df.iloc[-1]
+            
+            # Kondisi 1: Tren Naik (Harga di atas MA20)
+            is_uptrend = last['Close'] > last['MA20']
+
+            # Kondisi 2: Lonjakan Volume (Volume hari ini > N kali rata-rata 5 hari)
+            avg_vol = last['Avg5_Vol']
+            if avg_vol == 0: continue # Hindari pembagian dengan nol
+            
+            volume_ratio = last['Volume'] / avg_vol
+            is_spike = volume_ratio > VOLUME_SPIKE_THRESHOLD
+
+            if is_uptrend and is_spike:
+                results.append({
+                    "stock": stock_code.upper(),
+                    "price": last['Close'],
+                    "volume": last['Volume'],
+                    "avg_volume": avg_vol,
+                    "ratio": volume_ratio
+                })
         except Exception as e:
-            print(f"⚠️ Error scanning volume for {stock_code}: {str(e)}")
-    return sorted(volume_spikes, key=lambda x: x['ratio'], reverse=True)
+            print(f"⚠️ Error scanning {stock_code}: {str(e)}")
+            
+    # Urutkan berdasarkan rasio volume tertinggi
+    return sorted(results, key=lambda x: x['ratio'], reverse=True)
+
 
 def scan_potential_stocks():
     """Mencari saham yang berpotensi naik dengan kriteria lebih longgar."""
@@ -134,12 +164,8 @@ def scan_potential_stocks():
             last = df.iloc[-1]
             prev = df.iloc[-2]
 
-            # Kriteria Potensi Naik:
-            # 1. Harga baru saja menyeberang ke atas MA20 (sinyal awal uptrend)
             cond1 = float(last['Close']) > float(last['MA20']) and float(prev['Close']) < float(prev['MA20'])
-            # 2. RSI di atas 50 (momentum positif) dan belum overbought
             cond2 = 50 < float(last['RSI_14']) < RSI_OVERBOUGHT
-            # 3. MA5 sedang menanjak (momentum jangka pendek)
             cond3 = float(last['MA5']) > float(prev['MA5'])
 
             if cond1 and cond2 and cond3:
@@ -161,7 +187,6 @@ def analyze_stock(stock_code):
         if df.empty or len(df) < 51:
             return None, "❌ Data tidak cukup untuk analisis.", None
 
-        # --- Hitung Indikator ---
         df.ta.rsi(length=14, append=True)
         df['MA5'] = df['Close'].rolling(window=5).mean()
         df['MA20'] = df['Close'].rolling(window=20).mean()
@@ -170,7 +195,6 @@ def analyze_stock(stock_code):
         df.dropna(inplace=True)
         last = df.iloc[-1]
 
-        # --- Buat Kesimpulan Analisis ---
         price = float(last['Close'])
         change = price - float(df.iloc[-2]['Close'])
         change_pct = (change / float(df.iloc[-2]['Close'])) * 100
@@ -178,7 +202,6 @@ def analyze_stock(stock_code):
         header = f"*{stock_code.upper()}* | Harga: `{format_price(price)}` ({change_pct:+.2f}%)\n"
         header += "━━━━━━━━━━━━━━━━━━\n"
 
-        # Cek Posisi Harga terhadap MA
         posisi_ma = ""
         if price > last['MA5'] and price > last['MA20'] and price > last['MA50']:
             posisi_ma = "✅ Harga di atas semua MA (Strong Uptrend)."
@@ -189,7 +212,6 @@ def analyze_stock(stock_code):
         else:
             posisi_ma = "- Posisi harga mixed terhadap MA."
 
-        # Cek RSI
         rsi_val = float(last['RSI_14'])
         posisi_rsi = ""
         if rsi_val > RSI_OVERBOUGHT:
@@ -199,11 +221,9 @@ def analyze_stock(stock_code):
         else:
             posisi_rsi = f"- RSI: `{rsi_val:.2f}` (Netral)."
             
-        # Cek Volume
         vol_ratio = last['Volume'] / last['Volume_MA20']
         posisi_vol = f"- Volume: `{vol_ratio:.2f}x` dari rata-rata."
 
-        # --- Rekomendasi ---
         rekomendasi = "💡 *Rekomendasi: TAHAN (NEUTRAL)*\n"
         alasan = "Tidak ada sinyal kuat yang terdeteksi. Sebaiknya pantau pergerakan lebih lanjut."
         if posisi_ma.startswith("✅") and 50 < rsi_val < RSI_OVERBOUGHT and vol_ratio > 1:
@@ -218,7 +238,6 @@ def analyze_stock(stock_code):
 
         summary_text = header + f"{posisi_ma}\n{posisi_rsi}\n{posisi_vol}\n\n" + rekomendasi + f"_{alasan}_"
 
-        # --- Buat Grafik ---
         apd = [
             mpf.make_addplot(df['MA5'], color='blue', width=0.7),
             mpf.make_addplot(df['MA20'], color='orange', width=0.7),
@@ -233,7 +252,6 @@ def analyze_stock(stock_code):
                                figsize=(11, 7),
                                returnfig=True)
         
-        # Tambahkan legenda
         axlist[0].legend(['MA5', 'MA20', 'MA50'])
         
         buf = io.BytesIO()
@@ -247,7 +265,6 @@ def analyze_stock(stock_code):
 
 def scan_signals():
     """Memindai sinyal Beli/Jual berdasarkan strategi teknikal yang ketat."""
-    # Fungsi ini tetap sama, untuk sinyal yang sangat terkonfirmasi
     current_date = datetime.now().strftime('%d %b %Y')
     results = []
     buy_signals_list = []
@@ -304,8 +321,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Selamat datang di *Bot Analisis Saham*.\n\n"
         f"📋 **Perintah yang tersedia:**\n"
         f"• `/analisa <KODE_SAHAM>` - Analisis detail & grafik.\n"
+        f"• `/volume` - Sinyal Akumulasi + Uptrend.\n"
         f"• `/potensi` - Cari saham berpotensi naik.\n"
-        f"• `/volume` - Cek saham dengan lonjakan volume.\n"
         f"• `/sinyal` - Sinyal Beli/Jual (strategi ketat).\n\n"
         f"ℹ️ Ketik `/help` untuk info lebih lanjut."
     )
@@ -354,22 +371,38 @@ async def potential_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += "\n_Disclaimer: Sinyal awal memiliki risiko lebih tinggi. Selalu analisa lebih dalam sebelum transaksi._"
     await update.message.reply_text(text, parse_mode='Markdown')
 
-# --- Command handlers lama (volume & sinyal) tetap dipertahankan ---
+# <<< HANDLER LAMA DIGANTI DENGAN HANDLER BARU DI BAWAH INI >>>
 async def volume_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if not check_daily_limit(user_id):
         await update.message.reply_text("⚠️ Batas request harian tercapai.")
         return
-    await update.message.reply_text("⏳ Memindai lonjakan volume...", parse_mode='Markdown')
-    spikes = scan_volume_spikes()
-    if not spikes:
-        await update.message.reply_text(f"⚠️ Tidak ada saham dengan lonjakan volume signifikan (di atas *{VOLUME_SPIKE_THRESHOLD}x* rata-rata).", parse_mode='Markdown')
+        
+    await update.message.reply_text("⏳ Memindai sinyal Akumulasi + Uptrend...", parse_mode='Markdown')
+    stocks = scan_accumulation_uptrend()
+    
+    if not stocks:
+        await update.message.reply_text(f"⚠️ Tidak ada saham dengan sinyal Akumulasi + Uptrend saat ini (di atas *{VOLUME_SPIKE_THRESHOLD}x* rata-rata).", parse_mode='Markdown')
         return
-    text = f"📈 *Top Volume Spikes* (Data EOD/Tertunda)\n\n"
-    for item in spikes[:10]:
-        text += f"*{item['stock']}* | Rasio: `{item['ratio']:.2f}x` | Harga: `{format_price(item['price'])}`\n"
-    text += "\n_Disclaimer: Volume tinggi bisa berarti tekanan beli atau jual. Analisa lebih lanjut._"
-    await update.message.reply_text(text, parse_mode='Markdown')
+
+    # Membangun pesan sesuai format yang diinginkan
+    text = "📈 Sinyal Akumulasi + Uptrend\n"
+    text += "Saham dengan volume tinggi & tren naik\n"
+
+    # Batasi jumlah hasil agar tidak melebihi batas pesan Telegram
+    for item in stocks[:20]:
+        text += "\n━━━━━━━━━━━━━━━\n"
+        text += f"🔹 {item['stock']}.JK ()\n"
+        text += f"💰 Harga: Rp{format_price(item['price'])}\n"
+        text += f"📊 Volume: {item['volume']:,.0f} | Avg5: {item['avg_volume']:,.0f}\n"
+        text += f"📈 Ratio: {item['ratio']:.2f}x\n"
+        text += "📉 Trend: 📈 Uptrend" # Selalu Uptrend karena sudah difilter
+    
+    text += "\n\n━━━━━━━━━━━━━━━\n"
+    text += '📬 Analisa kembali "BUY"'
+
+    await update.message.reply_text(text)
+
 
 async def sinyal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -384,7 +417,6 @@ async def sinyal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     text = "*📊 Sinyal Terkonfirmasi (Strategi Ketat):*\n"
     for item in results:
-        # ... format teks sinyal tetap sama ...
         if item["type"] == "BUY":
             text += (f"\n🚀 *BUY SIGNAL: {item['stock']}*\n"
                      f"   └ Entry: `{format_price(item['entry'])}` | TP: `{format_price(item['tp'])}` | SL: `{format_price(item['sl'])}`")
@@ -418,7 +450,7 @@ def main():
     application.add_handler(CommandHandler("help", start_command))
     application.add_handler(CommandHandler("analisa", analyze_command))
     application.add_handler(CommandHandler("potensi", potential_command))
-    application.add_handler(CommandHandler("volume", volume_command))
+    application.add_handler(CommandHandler("volume", volume_command)) # Command ini sekarang menggunakan format baru
     application.add_handler(CommandHandler("sinyal", sinyal_command))
     application.add_handler(MessageHandler(filters.COMMAND, handle_unknown_commands))
     
